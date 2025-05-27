@@ -267,18 +267,6 @@ export default function ListView() {
     });
   };
 
-  // When initializing OpenAI
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-
-  const restaurantsWithReviews = restaurants.map(restaurant => ({
-    id: restaurant.id,
-    name: restaurant.name,
-    type: restaurant.type,
-    reviews: restaurant.reviews || [],
-  }));
-
   // Add these states for the recommendation dialog
   const [criteria, setCriteria] = useState('');
   const [showRecommendation, setShowRecommendation] = useState(false);
@@ -287,7 +275,7 @@ export default function ListView() {
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
 
   // Add this function for generating recommendations
-  const handleGetRecommendation = () => {
+  const handleGetRecommendation = async () => {
     if (!criteria.trim()) {
       setRecommendationError('추천 기준을 입력해주세요.');
       return;
@@ -296,7 +284,70 @@ export default function ListView() {
     setLoading(true);
     setRecommendationError(null);
     
-    // Simulating API call with setTimeout
+    try {
+      // Create OpenAI client
+      const openai = new OpenAI({
+        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY || '',
+        dangerouslyAllowBrowser: true // Required for client-side usage
+      });
+      
+      // Check if we have a valid API key
+      if (!process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
+        // Fallback to simulated recommendation if no API key
+        simulateRecommendation();
+        return;
+      }
+      
+      // Get restaurants to reference in the prompt
+      const filteredRestaurants = getFilteredRestaurants();
+      
+      // Prepare restaurant data for the prompt
+      const restaurantData = filteredRestaurants.map(r => ({
+        name: r.name,
+        type: r.type,
+        rating: r.rating,
+        price: r.price,
+        location: r.location,
+        features: r.features,
+        reviews: r.reviews.slice(0, 2) // Limit reviews to keep prompt smaller
+      }));
+      
+      // Create prompt
+      const prompt = `다음 맛집 정보를 바탕으로 "${criteria}"를 중요시하는 사용자에게 가장 적합한 맛집을 하나 추천해주세요.
+      맛집 데이터: ${JSON.stringify(restaurantData, null, 2)}
+      
+      다음 형식으로 응답해주세요:
+      [맛집 이름]을(를) 추천합니다.
+      
+      [추천 이유 - 사용자 기준에 맞게 설명]
+      `;
+      
+      // Call OpenAI API
+      const response = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          { role: "system", content: "당신은 맛집 추천 전문가입니다. 사용자의 기준에 맞는 가장 적합한 식당을 추천해주세요." },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 300
+      });
+      
+      const recommendation = response.choices[0].message.content;
+      setRecommendation(recommendation || "추천 결과를 생성할 수 없습니다.");
+      
+    } catch (error) {
+      console.error('Error with OpenAI API:', error);
+      setRecommendationError('API 연결 오류. 다시 시도해주세요.');
+      // Fallback to simulated recommendation
+      simulateRecommendation();
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Helper function for fallback recommendation
+  const simulateRecommendation = () => {
     setTimeout(() => {
       try {
         // Select a random restaurant for the demo
